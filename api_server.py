@@ -23,8 +23,6 @@ rag_agent = None
 def signal_handler(signum, frame):
     """Handle shutdown signals"""
     logger.info("Received shutdown signal")
-    if rag_agent:
-        rag_agent.cleanup()
     sys.exit(0)
 
 # Register signal handlers
@@ -34,16 +32,12 @@ signal.signal(signal.SIGTERM, signal_handler)
 def cleanup_database():
     """Safely remove the database directory"""
     try:
-        if os.path.exists("chroma_db"):
-            # First try to close any open connections
-            if rag_agent and rag_agent.vector_store:
-                rag_agent.cleanup()
-            
-            # Wait a bit for connections to close
+        if os.path.exists("faiss_index"):
+            # Wait a bit for any operations to complete
             time.sleep(1)
             
             # Try to remove the directory
-            shutil.rmtree("chroma_db", ignore_errors=True)
+            shutil.rmtree("faiss_index", ignore_errors=True)
             logger.info("Database directory removed successfully")
     except Exception as e:
         logger.error(f"Error cleaning up database: {str(e)}")
@@ -62,12 +56,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Error initializing RAG Agent: {str(e)}")
         raise
-    finally:
-        # Shutdown
-        if rag_agent:
-            logger.info("Cleaning up RAG Agent...")
-            rag_agent.cleanup()
-            logger.info("RAG Agent cleanup completed")
 
 app = FastAPI(lifespan=lifespan)
 
@@ -101,13 +89,21 @@ async def add_documents(documents: List[Document]):
         raise HTTPException(status_code=400, detail="No documents provided")
         
     try:
+        # Convert Pydantic documents to Langchain documents
+        langchain_docs = [
+            Document(
+                page_content=doc.page_content,
+                metadata=doc.metadata
+            ) for doc in documents
+        ]
+        
         # Add documents with retry logic
         max_retries = 3
         retry_delay = 1  # seconds
         
         for attempt in range(max_retries):
             try:
-                rag_agent.add_documents(documents)
+                rag_agent.add_documents(langchain_docs)
                 return {"status": "success", "message": f"Added {len(documents)} documents successfully"}
             except Exception as e:
                 logger.error(f"Error adding documents (attempt {attempt + 1}): {str(e)}")
@@ -134,4 +130,10 @@ async def query(query: Query):
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=8000,
+        timeout_keep_alive=120,
+        timeout_graceful_shutdown=120
+    ) 

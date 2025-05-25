@@ -42,32 +42,32 @@ def read_pdf(file_path):
         return None
 
 def add_documents(documents):
-    """Add documents to the server."""
+    """Add documents to the RAG system."""
     try:
-        response = session.post(
+        response = requests.post(
             f"{SERVER_URL}/add_documents",
-            json=documents,
-            timeout=60  # Increased timeout
+            json=documents,  # Send documents directly without wrapping in a dict
+            timeout=180  # Increase timeout to 3 minutes
         )
         response.raise_for_status()
-        return True
-    except requests.exceptions.RequestException as e:
+        return response.json()
+    except Exception as e:
         logger.error(f"Error adding documents: {str(e)}")
-        return False
+        raise
 
 def ask_question(question):
-    """Ask a question to the server."""
+    """Ask a question to the RAG system."""
     try:
-        response = session.post(
-            f"{SERVER_URL}/query",
+        response = requests.post(
+            "http://localhost:8000/query",
             json={"question": question},
-            timeout=60  # Increased timeout
+            timeout=180  # Increase timeout to 3 minutes
         )
         response.raise_for_status()
         return response.json()["answer"]
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         logger.error(f"Error asking question: {str(e)}")
-        return None
+        raise
 
 def process_data_folder():
     """Process all PDF files in the data folder."""
